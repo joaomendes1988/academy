@@ -1,0 +1,17 @@
+name: Push
+description: Push the Docker image to a registry
+inputs:
+  docker_username:
+    description: "Docker username"
+    required: true
+  image:
+    description: "Name of the Docker image"
+    required: true
+runs:
+  using: composite
+  steps:
+    - run: |
+        docker image tag ${{ inputs.image }} ${{ inputs.docker_username }}/${{ inputs.image }}
+        docker push ${{ inputs.docker_username }}/${{ inputs.image }}
+        echo "Docker image pushed successfully!"
+      shell: bash

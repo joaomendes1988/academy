@@ -1,0 +1,27 @@
+name: Build
+description: Build the Docker image
+inputs:
+  path_dockerfile:
+    description: "Path to the Dockerfile"
+    required: false
+    default: "Dockerfile"
+  image_name:
+    description: "Name of the Docker image"
+    required: true
+  tag_name:
+    description: "Tag name for the Docker image"
+    required: false
+runs:
+  using: composite
+  steps:
+    - run: |
+        echo "$image_name"
+        echo "${{ inputs.image_name }}"
+        if [ -z "${{ inputs.tag_name }}" ]; then
+            export TAG=$(date +%s)
+          else
+            export TAG="${{ inputs.tag_name }}"
+        fi
+        
+        docker build . --file ${{ inputs.path_dockerfile }} --tag ${{ inputs.image_name }}:$TAG
+      shell: bash
