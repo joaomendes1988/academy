@@ -34,13 +34,40 @@ on:
         
   
 env:
-  IMAGE_NAME_ENV: academy-${{ inputs.environment }}
+  IMAGE_NAME_ENV: academy
   TAG_NAME_ENV: ${{ inputs.tag }}-${{ inputs.environment }}
   ARTIFACT_NAME: docker-image
 
 jobs:
-  build:
+
+  matrix-setup:
+    name: Set up matrix
     runs-on: ubuntu-latest
+    outputs:
+      job_matrix: ${{ steps.set_matrix.outputs.matrix }}
+    steps:
+      - id: set_matrix
+        run: |
+          MATRIX_JSON='{
+            "include": [
+              { "arch_name": "arm64", "architecture": "linux/arm64", "os": "ubuntu-24.04-arm"},
+              { "arch_name": "amd64", "architecture": "linux/amd64", "os": "ubuntu-latest"}
+            ]
+          }'
+          MATRIX_JSON=$(jq -c <<< $MATRIX_JSON)
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
+  build:
+    runs-on: 	${{ matrix.os }}
+
+    strategy:
+      matrix: ${{ fromJson(needs.matrix-setup.outputs.job_matrix) }}
+      fail-fast: false
+
+    outputs:
+      image_name_created: ${{ steps.docker_build.outputs.image_name_created }}
+
+    needs: matrix-setup
 
     services:
       postgres:
@@ -67,40 +94,55 @@ jobs:
       uses: joaomendes1988/academy/.github/actions/maven_build@main
 
     - name: Call Docker Action
+      id: docker_build
       uses: joaomendes1988/academy/.github/actions/docker_build@main
       with:
         path_dockerfile: Dockerfile
         image_name: $IMAGE_NAME_ENV
         tag_name: $TAG_NAME_ENV
+        architecture: ${{ matrix.architecture }}
+        arch_name: ${{ matrix.arch_name }}
     
     - name: Save Docker image
       run: |
-        docker save -o $IMAGE_NAME_ENV.tar $IMAGE_NAME_ENV:$TAG_NAME_ENV
+        docker save -o $IMAGE_NAME_ENV.tar ${{ steps.docker_build.outputs.image_name_created }}
 
 
     - name: Upload Docker image as artifact
       uses: actions/upload-artifact@v4
       with:
-        name: $ARTIFACT_NAME
+        name: $ARTIFACT_NAME${{ matrix.arch_name }}
         path: "${{ env.IMAGE_NAME_ENV }}.tar"
 
   list:
     runs-on: ubuntu-latest
-    needs: build
+    needs: 
+      - build
+      - matrix-setup
+
+    strategy:
+      matrix: ${{ fromJson(needs.matrix-setup.outputs.job_matrix) }}
+
     environment: ${{ inputs.environment }}
     steps:
 
     - name: Download Docker image artifact
       uses: actions/download-artifact@v4
       with:
-        name: $ARTIFACT_NAME
+        name: $ARTIFACT_NAME${{ matrix.arch_name }}
 
     - name: Load Docker image
-      run: docker load -i $IMAGE_NAME_ENV.tar
-
-    - name: List docker images
       run: |
-        docker image ls
+        # Load Docker image from tar file and add the image name to environment variable
+        docker load -i ${{ env.IMAGE_NAME_ENV }}.tar
+        
+
+    - name: List docker images and store the first one in an environment variable
+      run: |
+        # List Docker images and store the first one in an environment variable
+        IMAGE_NAME=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -n 1)
+        echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
+
     
     - name: Login to Docker Hub
       uses: docker/login-action@v3
@@ -112,5 +154,4 @@ jobs:
       uses: joaomendes1988/academy/.github/actions/docker_push@main
       with:
         docker_username: ${{ secrets.DOCKERHUB_USERNAME }}
-        image: $IMAGE_NAME_ENV:$TAG_NAME_ENV
-   
+        image: ${{ env.IMAGE_NAME }}

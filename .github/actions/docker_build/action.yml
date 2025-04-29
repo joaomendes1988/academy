@@ -11,17 +11,50 @@ inputs:
   tag_name:
     description: "Tag name for the Docker image"
     required: false
+  architecture:
+    description: "Architecture for the Docker image"
+    required: false
+  arch_name:
+    description: "Architecture name for the Docker image"
+    required: false
+outputs:
+  image_name_created:
+    description: "Name of the created Docker image"
+    value: ${{ steps.docker_build.outputs.image_name_created }}
 runs:
   using: composite
   steps:
-    - run: |
-        echo "$image_name"
-        echo "${{ inputs.image_name }}"
+    - id: docker_build
+      run: |
+        
+        # This script checks if the 'tag_name' input is provided.
+        # If 'tag_name' is not set (empty), it generates a timestamp-based tag using the current Unix timestamp.
+        # Otherwise, it uses the provided 'tag_name' as the tag value.
         if [ -z "${{ inputs.tag_name }}" ]; then
             export TAG=$(date +%s)
           else
             export TAG="${{ inputs.tag_name }}"
         fi
-        
-        docker build . --file ${{ inputs.path_dockerfile }} --tag ${{ inputs.image_name }}:$TAG
+
+        # This script checks if the 'architecture' input is provided.
+        # If the input is not empty, it appends the value of 'arch_name' 
+        # to the existing 'TAG' environment variable, separated by a hyphen.
+        if [ -z "${{ inputs.architecture }}" ]; then
+            export TAG="${TAG}-${{ inputs.arch_name }}"
+        fi
+                
+        # It checks if the 'architecture' input is provided:
+        # - If 'architecture' is specified, it builds the Docker image using the specified Dockerfile path,
+        #   platform architecture, and tags the image with the provided name and tag.
+        # - If 'architecture' is not specified, it builds the Docker image using the specified Dockerfile path
+        #   and tags the image with the provided name and tag, without specifying a platform.
+        if [ -z "${{ inputs.architecture }}" ]; then
+          docker build . --file ${{ inputs.path_dockerfile }} --platform ${{ inputs.architecture }}  --tag ${{ inputs.image_name }}:$TAG
+        else
+          docker build . --file ${{ inputs.path_dockerfile }} --tag ${{ inputs.image_name }}:$TAG
+        fi
+
+        # A string in the format "image_name:tag" is written to the $GITHUB_OUTPUT environment variable,
+        # making it available for subsequent steps in the GitHub Actions workflow.
+        echo "image_name_created=${{ inputs.image_name }}:$TAG" >> $GITHUB_OUTPUT
       shell: bash
